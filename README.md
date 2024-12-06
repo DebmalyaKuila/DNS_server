@@ -3,6 +3,7 @@ A simple DNS Server (Domain Name System) written in C++. This project demonstrat
 This project is intended for educational purposes to understand the inner workings of DNS and C++ network programming. It implements fundamental DNS server functionality without the complexity of modern production DNS servers.
 
 # Project setup
+**Important Note** - This project can only run on linux enviroment
 1. Clone the project by using command `git clone <project_url>`
 2. In the project directory , oprn terminal and run command `g++ -o dns_server dns_server.cpp` to create executable
 3. Now, run the executable and your dns server should be running on port 8080
