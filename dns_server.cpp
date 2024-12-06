@@ -91,24 +91,3 @@ int main() {
     }
     return 0;
 }
-
-
-// PROBLEM --->  echo -n "example.com" | nc -u localhost 8080 prints something weird like "i??"  ,its not the ip_address or NOT_FOUND.
-
-//SOLUTION --->
-// This typically happens because of how the UDP socket handles data transmission.UDP is connectionless, so there’s no guarantee of delivery, and the data can arrive 
-//in an unexpected format, especially if the receiving application (terminal in this case) doesn't handle the input properly.
-// Key changes:
-// 1.Added cleanDomain() method to sanitize input
-// 2.Uses memset() to clear buffer before each receive
-// 3.Explicitly handles buffer size to prevent unexpected characters
-
-// Recommended testing method:
-// # Use printf to ensure clean input
-// printf "example.com" | nc -u localhost 8080
-
-//echo automatically appends a newline (\n) to the end of its output, unless you explicitly disable it with the -n option.
-//printf, on the other hand, does not append a newline by default. It requires you to specify a newline explicitly if needed.
-
-//echo can introduce unintended newlines or escape sequences in its output, especially when piped or redirected.
-//printf gives you more precise control over the output, so when you're sending data to something like nc or a server, it’s often better to use printf because it won't introduce any unexpected characters or formatting.
