@@ -24,6 +24,12 @@ public:
             throw runtime_error("Socket creation failed");
         }
 
+        // Set socket option to reuse address
+        int optval = 1;
+        if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
+            throw runtime_error("Socket option setting failed");
+        }
+
         // Configure server address
         memset(&serverAddress, 0, sizeof(serverAddress));
         serverAddress.sin_family = AF_INET;
@@ -57,9 +63,11 @@ public:
             if (receivedBytes < 0) {
                 cerr << "Receive error" << endl;
                 continue;
+            }else{
+                buffer[receivedBytes] = '\0';
+                cout<<"Request received : "<<buffer<<endl;
             }
 
-            buffer[receivedBytes] = '\0';
             string domain(buffer);
 
             // Look up IP for domain
@@ -72,7 +80,12 @@ public:
             }
 
             // Send response back to client
-            sendto(serverSocket, response.c_str(), response.length(), 0, (struct sockaddr*)&clientAddress, clientLength);
+            size_t sentBytes =sendto(serverSocket, response.c_str(), response.length(), 0, (struct sockaddr*)&clientAddress, clientLength);
+            if (sentBytes < 0) 
+            cerr<<"Failed to send response"<<endl;
+            else if (static_cast<size_t>(sentBytes) != response.length()) 
+            cerr << "Partial send: Only " << sentBytes << " of " << response.length() << " bytes sent" << endl;
+            else cout<<"Response sent : "<<response<<endl;
         }
     }
     ~DNSServer() {
