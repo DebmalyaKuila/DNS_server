@@ -121,6 +121,36 @@ private:
         return response;
     }
 
+    vector<uint8_t> createNXDomainResponse(const DNSHeader& query_header, const string& domain) {
+    vector<uint8_t> response;
+
+    // NXDOMAIN Response Header
+    DNSHeader response_header = {
+        query_header.id,     // Same ID as request query
+        htons(0x8383),       // Response flag with NXDOMAIN (QR=1, RCODE=3)
+        htons(1),            // Question count
+        htons(0),            // Answer count
+        htons(0),            // Name server count
+        htons(0)             // Additional record count
+    };
+
+    // Add header to response
+    uint8_t* header_ptr = reinterpret_cast<uint8_t*>(&response_header);
+    response.insert(response.end(), header_ptr, header_ptr + sizeof(DNSHeader));
+
+    // Encode original domain name without compression
+    vector<uint8_t> encoded_domain = encodeDomainName(domain);
+    response.insert(response.end(), encoded_domain.begin(), encoded_domain.end());
+
+    // Query type and class
+    uint16_t qtype = htons(0x0001);   // A record
+    uint16_t qclass = htons(0x0001);  // IN (Internet)
+    response.insert(response.end(), reinterpret_cast<uint8_t*>(&qtype), reinterpret_cast<uint8_t*>(&qtype) + 2);
+    response.insert(response.end(), reinterpret_cast<uint8_t*>(&qclass), reinterpret_cast<uint8_t*>(&qclass) + 2);
+
+    return response;
+}
+
 public:
     DNSServer(unsigned int port) {
         // Create UDP socket
@@ -189,7 +219,16 @@ public:
                 }
             } else {
                 cout << "Domain not found: " << domain << endl;
-                //send NXDOMAIN response here , work on it later...
+                // Create and send response
+                vector<uint8_t> response = createNXDomainResponse(*query_header, domain);
+                size_t sent_len = sendto(sockfd, response.data(), response.size(), 0, (struct sockaddr*)&client_addr, client_len);
+                if (sent_len < 0) {
+                    cerr << "Send error" << endl;
+                } else if (sent_len != response.size()) {
+                    cerr << "Partial send: Only " << sent_len << " of " << response.size() << " bytes sent" << endl; 
+                } else {
+                    cout << "Responded with Domain not found(NXDOMAIN) " <<" , Sent " << sent_len << " bytes" << endl;
+                }
             }
         }
     }
@@ -206,7 +245,7 @@ public:
 int main() {
     try {
         DNSServer dns_server(DNS_port);
-        dns_server.addRecord("example.com","194.44.34.001");
+        dns_server.addRecord("example.com","194.44.34.1");
         dns_server.start();
     } catch (const exception& e) {
         cerr << "Error: " << e.what() << endl;
