@@ -9,6 +9,8 @@
 using namespace std;
 
 unsigned int DNS_port=8080;
+string Forward_DNS_ip="9.9.9.9";//Quad9 root server ip address
+unsigned int Forward_DNS_port=53;
 
 // Ensure packed struct for network communication
 #pragma pack(push, 1)
@@ -31,6 +33,8 @@ class DNSServer {
 private:
     int sockfd;
     struct sockaddr_in server_addr;
+    int forward_sockfd;
+    struct sockaddr_in forwarder_addr;
     unordered_map<string,string> dnsRecords;
 
     // Convert domain name to DNS wire format
@@ -151,6 +155,28 @@ private:
     return response;
 }
 
+    vector<uint8_t> forwardQuery(const uint8_t* query_buffer, size_t query_len){
+        vector<uint8_t> response(1024);
+        
+        ssize_t sent_len = sendto(forward_sockfd, query_buffer, query_len, 0, (struct sockaddr*)&forwarder_addr, sizeof(forwarder_addr));
+        if (sent_len < 0) {
+            cout<<"Failed to forward query to "<<Forward_DNS_ip<<endl;
+            response.resize(0);
+            return response;
+        }
+
+        socklen_t forwarder_len = sizeof(forwarder_addr);
+        ssize_t recv_len = recvfrom(forward_sockfd, response.data(), response.size(), 0, (struct sockaddr*)&forwarder_addr, &forwarder_len);   
+        if (recv_len < 0) {
+            cout<<"Failed to receive root DNS response"<<endl;
+            response.resize(0);
+            return response;
+        }
+
+        response.resize(recv_len);
+        return response;
+}
+
 public:
     DNSServer(unsigned int port) {
         // Create UDP socket
@@ -177,6 +203,29 @@ public:
         }
 
         cout << "DNS Server up and running on port "<<port<< endl;
+
+        // Create DNS query forwarding socket
+        forward_sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (forward_sockfd < 0) {
+            close(sockfd);
+            throw runtime_error("Failed to create DNS forwarding socket");
+        }
+
+        // Configure DNS query forwarder socket address
+        memset(&forwarder_addr, 0, sizeof(forwarder_addr));
+        forwarder_addr.sin_family = AF_INET;
+        forwarder_addr.sin_port = htons(Forward_DNS_port);
+        if (inet_pton(AF_INET, Forward_DNS_ip.c_str(), &forwarder_addr.sin_addr) <= 0) {
+            throw runtime_error("Invalid forwarder IP address");
+        }
+
+        //set timeout option for DNS query forwarder
+        struct timeval tv;
+        tv.tv_sec = 5;  // 5 seconds timeout
+        tv.tv_usec = 0;
+        if (setsockopt(forward_sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+            throw runtime_error("Failed to set socket timeout");
+        }
         
         // Hardcoded DNS records
         dnsRecords["localhost"] = "127.0.0.1";
@@ -206,6 +255,8 @@ public:
             cout << "Query for domain: " << domain << endl<< "Type: " << ntohs(query->qType) << ", Class: " << ntohs(query->qClass) << endl;
             // Look up domain
             auto it = dnsRecords.find(domain);
+
+            //when ip address is found in local records
             if (it != dnsRecords.end()) {
                 // Create and send response
                 vector<uint8_t> response = createDNSResponse(*query_header, domain, it->second);
@@ -218,16 +269,31 @@ public:
                     cout << "Responded with IP: " << it->second << endl<< "Sent " << sent_len << " bytes" << endl;
                 }
             } else {
-                cout << "Domain not found: " << domain << endl;
-                // Create and send response
-                vector<uint8_t> response = createNXDomainResponse(*query_header, domain);
+                vector<uint8_t> response;
+                //Didn't found the query domain's ip address in local record , forwarding dns query
+                response=forwardQuery(buffer,recv_len);
+
+                //Din't get the ip adress even after DNS query forwarding
+                if(response.size()==0){
+                    cout << "Domain not found: " << domain << endl;
+                    // Create and send response
+                    response = createNXDomainResponse(*query_header, domain);
+                }
+
+
+                //Before sending it to the client , cache the ip adress of this domain
+                //1.extract the IPV4 address of the query domain
+                //2.cache the ip address in a custom LFU cache
+
+
+
                 size_t sent_len = sendto(sockfd, response.data(), response.size(), 0, (struct sockaddr*)&client_addr, client_len);
                 if (sent_len < 0) {
                     cerr << "Send error" << endl;
                 } else if (sent_len != response.size()) {
                     cerr << "Partial send: Only " << sent_len << " of " << response.size() << " bytes sent" << endl; 
                 } else {
-                    cout << "Responded with Domain not found(NXDOMAIN) " <<" , Sent " << sent_len << " bytes" << endl;
+                    cout << "Responded with response " <<" , Sent " << sent_len << " bytes" << endl;
                 }
             }
         }
@@ -239,6 +305,7 @@ public:
 
     ~DNSServer() {
         close(sockfd);
+        close(forward_sockfd);
     }
 };
 
