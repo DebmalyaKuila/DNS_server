@@ -160,7 +160,7 @@ private:
         
         ssize_t sent_len = sendto(forward_sockfd, query_buffer, query_len, 0, (struct sockaddr*)&forwarder_addr, sizeof(forwarder_addr));
         if (sent_len < 0) {
-            cout<<"Failed to forward query to "<<Forward_DNS_ip<<endl;
+            cout<< "\033[33m"<<"Failed to forward query to "<<Forward_DNS_ip<< "\033[0m"<<endl;
             response.resize(0);
             return response;
         }
@@ -202,7 +202,7 @@ public:
             throw std::runtime_error("Failed to bind socket");
         }
 
-        cout << "DNS Server up and running on port "<<port<< endl;
+        cout << "DNS Server up and running on port "<< "\033[1m"<<port<< "\033[0m"<< endl;
 
         // Create DNS query forwarding socket
         forward_sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -244,7 +244,7 @@ public:
                 cerr << "Receive error" << endl;
                 continue;
             }
-            cout << "Received query of " << recv_len << " bytes" << endl;
+            cout <<endl << "Received query of " << recv_len << " bytes" << endl;
             // Parse DNS header
             DNSHeader* query_header = reinterpret_cast<DNSHeader*>(buffer);
             // Decode domain name
@@ -266,7 +266,7 @@ public:
                 } else if (sent_len != response.size()) {
                     cerr << "Partial send: Only " << sent_len << " of " << response.size() << " bytes sent" << endl; 
                 } else {
-                    cout << "Responded with IP: " << it->second << endl<< "Sent " << sent_len << " bytes" << endl;
+                    cout<< "\033[32m"<<"Responded with IP: " << it->second << endl<< "Sent " << sent_len << " bytes"<< "\033[0m" << endl;
                 }
             } else {
                 vector<uint8_t> response;
@@ -275,7 +275,7 @@ public:
 
                 //Din't get the ip adress even after DNS query forwarding
                 if(response.size()==0){
-                    cout << "Domain not found: " << domain << endl;
+                    cout << "\033[33m"<< "Domain not found: " << domain << "\033[0m"<< endl;
                     // Create and send response
                     response = createNXDomainResponse(*query_header, domain);
                 }
@@ -283,7 +283,7 @@ public:
 
                 //Before sending it to the client , cache the ip adress of this domain
                 //1.extract the IPV4 address of the query domain
-                //2.cache the ip address in a custom LFU cache
+                //2.cache the ip address in a custom LRU cache
 
 
 
@@ -293,7 +293,7 @@ public:
                 } else if (sent_len != response.size()) {
                     cerr << "Partial send: Only " << sent_len << " of " << response.size() << " bytes sent" << endl; 
                 } else {
-                    cout << "Responded with response " <<" , Sent " << sent_len << " bytes" << endl;
+                    cout<< "\033[32m" <<"Response sent from root server"<< endl<<"Sent " << sent_len << " bytes" << "\033[0m"<< endl;
                 }
             }
         }
