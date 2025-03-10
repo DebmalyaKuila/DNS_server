@@ -6,6 +6,8 @@
 #include <cstring>
 #include <string>
 
+#include "../includes/LRUCache.h"
+
 using namespace std;
 
 unsigned int DNS_port=8080;
@@ -35,7 +37,8 @@ private:
     struct sockaddr_in server_addr;
     int forward_sockfd;
     struct sockaddr_in forwarder_addr;
-    unordered_map<string,string> dnsRecords;
+    //initialize a cache 
+    LRUCache cache;
 
     // Convert domain name to DNS wire format
     vector<uint8_t> encodeDomainName(const string& domain) {
@@ -57,7 +60,7 @@ private:
     encoded.push_back(0);
 
     return encoded;
-}
+    }
 
 
     // Decode domain name from DNS wire format
@@ -76,7 +79,7 @@ private:
     }
 
     // create DNS response
-    vector<uint8_t> createDNSResponse(const DNSHeader& query_header, const string& domain, const string& ip_address) {
+    vector<uint8_t> createDNSResponse(const DNSHeader& query_header, const string& domain, const string& ip_address ,time_t timeToLive) {
         vector<uint8_t> response;
         // Response header
         DNSHeader response_header = {
@@ -111,7 +114,8 @@ private:
         response.insert(response.end(), reinterpret_cast<uint8_t*>(&class_in), reinterpret_cast<uint8_t*>(&class_in) + 2);
 
         // TTL (32-bit)
-        uint32_t ttl = htonl(3600);  // 1 hour
+        long int ttl_seconds=(long int)timeToLive;
+        uint32_t ttl = htonl(ttl_seconds);  
         response.insert(response.end(), reinterpret_cast<uint8_t*>(&ttl), reinterpret_cast<uint8_t*>(&ttl) + 4);
         // RDLENGTH (4 bytes for IPv4)
         uint16_t rdlength = htons(4);
@@ -153,14 +157,14 @@ private:
     response.insert(response.end(), reinterpret_cast<uint8_t*>(&qclass), reinterpret_cast<uint8_t*>(&qclass) + 2);
 
     return response;
-}
+    }
 
     vector<uint8_t> forwardQuery(const uint8_t* query_buffer, size_t query_len){
         vector<uint8_t> response(1024);
         
         ssize_t sent_len = sendto(forward_sockfd, query_buffer, query_len, 0, (struct sockaddr*)&forwarder_addr, sizeof(forwarder_addr));
         if (sent_len < 0) {
-            cout<< "\033[33m"<<"Failed to forward query to "<<Forward_DNS_ip<< "\033[0m"<<endl;
+            cout<< "\033[33m"<<"Failed to forward query to root server"<< "\033[0m"<<endl;
             response.resize(0);
             return response;
         }
@@ -175,10 +179,112 @@ private:
 
         response.resize(recv_len);
         return response;
-}
+    }
+
+    // We need to handle DNS compression pointers and thread-safe buffer handling
+    string extractIPv4(const vector<uint8_t>& response) {
+        if (response.size() < sizeof(DNSHeader)) {
+            throw runtime_error("Response too short for DNS header");
+        }
+        size_t offset = sizeof(DNSHeader);
+        // Skip question section with compression pointer handling
+        while (offset < response.size() && response[offset] != 0) {
+            // Check for DNS compression pointer (top 2 bits set)
+            if ((response[offset] & 0xC0) == 0xC0) {
+                offset += 2;  // Skip the entire pointer
+                break;
+            }
+            offset += response[offset] + 1;
+        }
+        if (offset >= response.size()) {
+            throw runtime_error("Response truncated in question section");
+        }
+        // Skip NULL terminator if not compression pointer
+        if ((response[offset-1] & 0xC0) != 0xC0) {
+            offset++;
+        }
+        // Skip QTYPE and QCLASS
+        offset += 4;
+        if (offset + 12 >= response.size()) {  // Need at least 12 more bytes for answer
+            throw runtime_error("Response truncated before answer section");
+        }
+        // Handle compressed name in answer section
+        if ((response[offset] & 0xC0) == 0xC0) {
+            offset += 2;  // Skip compression pointer
+        } else {
+            // Skip full name
+            while (offset < response.size() && response[offset] != 0) {
+                offset += response[offset] + 1;
+            }
+            offset++;  // Skip NULL terminator
+        }
+        // Skip TYPE and CLASS
+        offset += 4;
+        // Read TTL 
+        uint32_t ttl;
+        memcpy(&ttl, &response[offset], 4);
+        ttl = ntohl(ttl);
+        // Skip TTL and RDLENGTH
+        offset += 6;
+        if (offset + 4 > response.size()) {
+            throw runtime_error("Response truncated before IP address");
+        }
+        // at IP address
+        stringstream ss;
+        ss << (int)response[offset] << "."
+        << (int)response[offset + 1] << "."
+        << (int)response[offset + 2] << "."
+        << (int)response[offset + 3];
+        
+        return ss.str();
+    }
+
+    // Thread-safe buffer handling for TTL extraction
+    time_t extractTTL(const vector<uint8_t>& response) {
+        if (response.size() < sizeof(DNSHeader)) {
+            throw runtime_error("Response too short for DNS header");
+        }
+        size_t offset = sizeof(DNSHeader);
+        // Skip question section with compression pointer handling
+        while (offset < response.size() && response[offset] != 0) {
+            if ((response[offset] & 0xC0) == 0xC0) {
+                offset += 2;
+                break;
+            }
+            offset += response[offset] + 1;
+        }
+        if ((response[offset-1] & 0xC0) != 0xC0) {
+            offset++;
+        }
+        // Skip QTYPE and QCLASS
+        offset += 4;
+        // Skip name in answer section
+        if ((response[offset] & 0xC0) == 0xC0) {
+            offset += 2;
+        } else {
+            while (offset < response.size() && response[offset] != 0) {
+                offset += response[offset] + 1;
+            }
+            offset++;
+        }
+        // Skip TYPE and CLASS
+        offset += 4;
+        if (offset + 4 >= response.size()) {
+            throw runtime_error("Response truncated before TTL");
+        }
+        // Read TTL
+        uint32_t ttl_seconds;
+        memcpy(&ttl_seconds, &response[offset], sizeof(ttl_seconds));
+        ttl_seconds = ntohl(ttl_seconds);
+        
+        time_t current_time = time(nullptr);
+        return current_time + static_cast<time_t>(ttl_seconds);
+    }
+
 
 public:
-    DNSServer(unsigned int port) {
+    DNSServer(unsigned int port) : cache(10000) {
+        
         // Create UDP socket
         sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (sockfd < 0) {
@@ -202,7 +308,7 @@ public:
             throw std::runtime_error("Failed to bind socket");
         }
 
-        cout << "DNS Server up and running on port "<< "\033[1m"<<port<< "\033[0m"<< endl;
+        cout << "DNS Server up and running on port "<< "\033[1m"<<port<< "\033[0m"<< endl<<endl;
 
         // Create DNS query forwarding socket
         forward_sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -227,15 +333,13 @@ public:
             throw runtime_error("Failed to set socket timeout");
         }
         
-        // Hardcoded DNS records
-        dnsRecords["localhost"] = "127.0.0.1";
-        dnsRecords["test.com"] = "10.0.0.1";
     }
 
     void start() {
         uint8_t buffer[1024];
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
+        
 
         while (true) {
             // Receive DNS query
@@ -253,20 +357,21 @@ public:
             // Parse query type and class
             DNSQuery* query = reinterpret_cast<DNSQuery*>(&buffer[offset]);
             cout << "Query for domain: " << domain << endl<< "Type: " << ntohs(query->qType) << ", Class: " << ntohs(query->qClass) << endl;
+
             // Look up domain
-            auto it = dnsRecords.find(domain);
+            pair<string,time_t> it = cache.get(domain);
 
             //when ip address is found in local records
-            if (it != dnsRecords.end()) {
+            if ((it.first).size() != 0) {
                 // Create and send response
-                vector<uint8_t> response = createDNSResponse(*query_header, domain, it->second);
+                vector<uint8_t> response = createDNSResponse(*query_header, domain, it.first , it.second);
                 size_t sent_len = sendto(sockfd, response.data(), response.size(), 0, (struct sockaddr*)&client_addr, client_len);
                 if (sent_len < 0) {
                     cerr << "Send error" << endl;
                 } else if (sent_len != response.size()) {
                     cerr << "Partial send: Only " << sent_len << " of " << response.size() << " bytes sent" << endl; 
                 } else {
-                    cout<< "\033[32m"<<"Responded with IP: " << it->second << endl<< "Sent " << sent_len << " bytes"<< "\033[0m" << endl;
+                    cout<< "\033[32m"<<"Responded with IP: " <<it.first<< endl<< "Sent " << sent_len << " bytes"<< "\033[0m" << endl;
                 }
             } else {
                 vector<uint8_t> response;
@@ -278,14 +383,12 @@ public:
                     cout << "\033[33m"<< "Domain not found: " << domain << "\033[0m"<< endl;
                     // Create and send response
                     response = createNXDomainResponse(*query_header, domain);
+                }else{
+                    //Before sending it to the client , cache the ip address and TTL of this domain
+                    string ipAddress=extractIPv4(response);
+                    time_t timeToLive=static_cast<time_t>(extractTTL(response));
+                    cache.put(domain,ipAddress,timeToLive);
                 }
-
-
-                //Before sending it to the client , cache the ip adress of this domain
-                //1.extract the IPV4 address of the query domain
-                //2.cache the ip address in a custom LRU cache
-
-
 
                 size_t sent_len = sendto(sockfd, response.data(), response.size(), 0, (struct sockaddr*)&client_addr, client_len);
                 if (sent_len < 0) {
@@ -299,10 +402,6 @@ public:
         }
     }
 
-    void addRecord(const string& domain, const string& ip) {
-        dnsRecords[domain] = ip;
-    }
-
     ~DNSServer() {
         close(sockfd);
         close(forward_sockfd);
@@ -312,7 +411,6 @@ public:
 int main() {
     try {
         DNSServer dns_server(DNS_port);
-        dns_server.addRecord("example.com","194.44.34.1");
         dns_server.start();
     } catch (const exception& e) {
         cerr << "Error: " << e.what() << endl;

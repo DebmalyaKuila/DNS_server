@@ -1,0 +1,2 @@
+add_executable(Executable dns_server.cc)
+target_link_libraries(Executable PUBLIC Library)
