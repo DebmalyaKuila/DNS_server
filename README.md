@@ -39,3 +39,23 @@ This project is intended to understand the inner workings of DNS and C++ network
 
 # Testing
 open a new terminal and use command `dig @127.0.0.1 -p 8080 example.com `
+
+# Performance benchmark
+Currently using `dnsperf` for performance testing using command `dnsperf -s 127.0.0.1 -p 8080 -d queries.txt -Q 1000000 -l 10` with a queries.txt file containg only unique DNS queries for domain (only looking for A records)</br>
+**Statistics:**
+``` 
+  Queries sent:         219
+  Queries completed:    19 (8.68%)
+  Queries lost:         200 (91.32%)
+
+  Response codes:       NXDOMAIN 19 (100.00%)
+  Average packet size:  request 36, response 91
+  Run time (s):         13.940805
+  Queries per second:   1.362906
+
+  Average Latency (s):  2.120550 (min 0.215978, max 4.505680)
+  Latency StdDev (s):   1.313056
+  ```
+- only 1.36 QPS processed (very bad performance)
+- reasons : single-threaded blocking architecture, query forward to dns root server timeouts , no concurrency , socket backlog overflow
+                                     
