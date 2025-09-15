@@ -11,7 +11,7 @@
 using namespace std;
 
 unsigned int DNS_port=8080;
-string Forward_DNS_ip="9.9.9.9";//Quad9 root server ip address
+string Forward_DNS_ip="8.8.8.8";//google root dns server ip address
 unsigned int Forward_DNS_port=53;
 
 // Ensure packed struct for network communication
