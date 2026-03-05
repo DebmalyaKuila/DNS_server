@@ -36,6 +36,9 @@ This project is intended to understand the inner workings of DNS and C++ network
             3.cmake ..
             4.cmake --build .
 3. Now, run the executable `./src/Exexutable` on terminal and your dns server should be running on port 8080
+4. If you want to start this program in background ` ./src/Executable & echo $! > ../dns_server.pid`.</br>
+NOW, if you wanna do some health checks , you can run the `./run_scripts.sh` script residing inside `scripts/` folder at the root of the project directory<br/>
+P.S. - For now I am just keeping the PID of background job dns server process at the root of the folder as `dns_server.pid` and using this in the health check scripts  
 
 # Testing
 open a new terminal and use command `dig @127.0.0.1 -p 8080 example.com `

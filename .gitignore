@@ -1,1 +1,5 @@
+# ignore build artifacts
 build/
+
+# ignore PID file used by scripts
+/dns_server.pid
