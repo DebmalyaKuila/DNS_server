@@ -1,5 +1,5 @@
 #include "LRUCache.h"
-
+#include "debug.h"
 Node::Node(){
     key="";
     value="";
@@ -19,7 +19,9 @@ Node::Node(string s1,string s2,time_t timeToLive){
 }
 
 LRUCache::LRUCache(int cap){
-    cout<<"LRU cache constructor called"<<endl;
+    #if DEBUG
+    cout<<"LRU cache Initialized with max capacity: "<<cap<<endl;
+    #endif
             maxCapacity=cap;
             capacity=0;
             //Doubly linked list to store nodes in lru order
@@ -30,7 +32,9 @@ LRUCache::LRUCache(int cap){
 }
 
 LRUCache::~LRUCache(){
+            #if DEBUG
             cout<<"LRU cache destructor called"<<endl;
+            #endif
             //clear the cache map
             keyMap.clear();
             //clean the DLL
@@ -45,7 +49,9 @@ LRUCache::~LRUCache(){
 pair<string,time_t> LRUCache::get(string key){
             auto it=keyMap.find(key);
             if(it==keyMap.end()){
+                #if DEBUG
                 cout<< "\033[91;1m"<<"Cache miss"<< "\033[0m" << endl;
+                #endif
                 return {"",0};
             }
             //check whether the ttl expired or not
@@ -60,7 +66,9 @@ pair<string,time_t> LRUCache::get(string key){
                 keyMap.erase(key);
                 delete node ;
                 capacity--;
+                #if DEBUG
                 cout<< "\033[91;1m"<<"Cache miss - expired "<< "\033[0m" << endl;
+                #endif
                 return {"",0};
             }
 
@@ -77,7 +85,9 @@ pair<string,time_t> LRUCache::get(string key){
                 node->next=firstNode;
                 firstNode->prev=node;
             }
+            #if DEBUG
             cout<< "\033[92;1m"<<"Cache hit"<< "\033[0m" << endl;
+            #endif
             return {node->value,(node->ttl - (currentTime-node->cacheEntryTime))};
         }
 

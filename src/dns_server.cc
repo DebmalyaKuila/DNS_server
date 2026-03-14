@@ -7,6 +7,7 @@
 #include <string>
 
 #include "../includes/LRUCache.h"
+#include "../includes/debug.h"
 
 using namespace std;
 
@@ -164,7 +165,9 @@ private:
         
         ssize_t sent_len = sendto(forward_sockfd, query_buffer, query_len, 0, (struct sockaddr*)&forwarder_addr, sizeof(forwarder_addr));
         if (sent_len < 0) {
+            #if DEBUG
             cout<< "\033[33m"<<"Failed to forward query to root server"<< "\033[0m"<<endl;
+            #endif
             response.resize(0);
             return response;
         }
@@ -172,7 +175,9 @@ private:
         socklen_t forwarder_len = sizeof(forwarder_addr);
         ssize_t recv_len = recvfrom(forward_sockfd, response.data(), response.size(), 0, (struct sockaddr*)&forwarder_addr, &forwarder_len);   
         if (recv_len < 0) {
+            #if DEBUG
             cout<<"Failed to receive root DNS response"<<endl;
+            #endif
             response.resize(0);
             return response;
         }
@@ -308,7 +313,7 @@ public:
             throw std::runtime_error("Failed to bind socket");
         }
 
-        cout << "DNS Server up and running on port "<< "\033[1m"<<port<< "\033[0m"<< endl<<endl;
+        cout << "DNS Server up and running on port "<< "\033[1m"<<port<< "\033[0m"<< endl;
 
         // Create DNS query forwarding socket
         forward_sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -332,6 +337,8 @@ public:
         if (setsockopt(forward_sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
             throw runtime_error("Failed to set socket timeout");
         }
+
+        cout<< "Forwarding DNS queries to root server at " << Forward_DNS_ip << ":" << Forward_DNS_port << endl;
         
     }
 
@@ -340,15 +347,18 @@ public:
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
         
-
         while (true) {
             // Receive DNS query
             ssize_t recv_len = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_addr, &client_len);
             if (recv_len < 0) {
+                #if DEBUG
                 cerr << "Receive error" << endl;
+                #endif
                 continue;
             }
+            #if DEBUG
             cout <<endl << "Received query of " << recv_len << " bytes" << endl;
+            #endif
             // Parse DNS header
             DNSHeader* query_header = reinterpret_cast<DNSHeader*>(buffer);
             // Decode domain name
@@ -356,8 +366,9 @@ public:
             string domain = decodeDomainName(buffer, offset);
             // Parse query type and class
             DNSQuery* query = reinterpret_cast<DNSQuery*>(&buffer[offset]);
+            #if DEBUG
             cout << "Query for domain: " << domain << endl<< "Type: " << ntohs(query->qType) << ", Class: " << ntohs(query->qClass) << endl;
-
+            #endif
             // Look up domain
             pair<string,time_t> it = cache.get(domain);
 
@@ -366,6 +377,8 @@ public:
                 // Create and send response
                 vector<uint8_t> response = createDNSResponse(*query_header, domain, it.first , it.second);
                 size_t sent_len = sendto(sockfd, response.data(), response.size(), 0, (struct sockaddr*)&client_addr, client_len);
+                #if DEBUG
+                cout << "Cache hit for domain: " << domain << endl;
                 if (sent_len < 0) {
                     cerr << "Send error" << endl;
                 } else if (sent_len != response.size()) {
@@ -373,6 +386,7 @@ public:
                 } else {
                     cout<< "\033[32m"<<"Responded with IP: " <<it.first<< endl<< "Sent " << sent_len << " bytes"<< "\033[0m" << endl;
                 }
+                #endif
             } else {
                 vector<uint8_t> response;
                 //Didn't found the query domain's ip address in local record , forwarding dns query
@@ -380,7 +394,9 @@ public:
 
                 //Din't get the ip adress even after DNS query forwarding
                 if(response.size()==0){
+                    #if DEBUG
                     cout << "\033[33m"<< "Domain not found: " << domain << "\033[0m"<< endl;
+                    #endif
                     // Create and send response
                     response = createNXDomainResponse(*query_header, domain);
                 }else{
@@ -391,6 +407,8 @@ public:
                 }
 
                 size_t sent_len = sendto(sockfd, response.data(), response.size(), 0, (struct sockaddr*)&client_addr, client_len);
+                #if DEBUG
+                cout << "Forwarded query for domain: " << domain << endl;
                 if (sent_len < 0) {
                     cerr << "Send error" << endl;
                 } else if (sent_len != response.size()) {
@@ -398,6 +416,7 @@ public:
                 } else {
                     cout<< "\033[32m" <<"Response sent from root server"<< endl<<"Sent " << sent_len << " bytes" << "\033[0m"<< endl;
                 }
+                #endif
             }
         }
     }
